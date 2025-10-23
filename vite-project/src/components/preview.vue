@@ -60,14 +60,14 @@
 
       <!-- 中间部分（预留样式） -->
       <div class="center-area">
-        <span class="page-title">Homepage</span>
+        <!-- <span class="page-title">Homepage</span> -->
       </div>
 
       <!-- 右侧按钮区域 -->
       <div class="right-controls">
-        <el-button :icon="Edit" circle />
-        <el-button :icon="Link" circle />
-        <el-button type="primary">发布</el-button>
+        <!-- <el-button :icon="Edit" circle /> -->
+        <!-- <el-button :icon="Link" circle /> -->
+        <el-button type="primary">Publish</el-button>
       </div>
     </div>
 
@@ -76,7 +76,12 @@
       <div class="view-container">
         <!-- 页面预览模式 -->
         <div v-if="activeTab === 'preview'" class="preview-mode">
-          <div v-if="previewUrl" class="iframe-container">
+          <div
+            v-if="previewUrl"
+            ref="fullscreenTarget"
+            class="iframe-container"
+            :class="{ 'is-fullscreen': isFullscreen }"
+          >
             <!-- 缩放控制工具栏 -->
             <div class="iframe-toolbar">
               <div class="zoom-controls">
@@ -152,7 +157,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { 
   View, 
   Document, 
@@ -166,6 +171,12 @@ import {
   FullScreen
 } from '@element-plus/icons-vue'
 
+/**
+ * 暴露外部的插槽函数
+ * codeUrl: 代码编辑器的URL
+ * previewUrl: 页面预览的URL
+ */
+
 // 响应式数据
 const activeTab = ref('preview')
 const deviceSize = ref('desktop')
@@ -177,8 +188,81 @@ const codeError = ref('')
 // iframe缩放相关
 const zoomLevel = ref(1)
 const isFullscreen = ref(false)
-const iframeWidth = ref(375) // 默认手机宽度
-const iframeHeight = ref(667) // 默认手机高度
+const fullscreenTarget = ref(null)
+const iframeWidth = ref(375) // default mobile width
+const iframeHeight = ref(667) // default mobile height
+
+const getFullscreenElement = () =>
+  document.fullscreenElement ||
+  document.webkitFullscreenElement ||
+  document.mozFullScreenElement ||
+  document.msFullscreenElement ||
+  null
+
+const requestFullscreen = (element) => {
+  if (!element) return Promise.resolve()
+  if (element.requestFullscreen) {
+    return element.requestFullscreen()
+  }
+  const legacyRequest =
+    element.webkitRequestFullscreen ||
+    element.mozRequestFullScreen ||
+    element.msRequestFullscreen
+  if (legacyRequest) {
+    legacyRequest.call(element)
+    return Promise.resolve()
+  }
+  return Promise.resolve()
+}
+
+const exitFullscreen = () => {
+  if (document.exitFullscreen) {
+    return document.exitFullscreen()
+  }
+  if (document.webkitExitFullscreen) {
+    document.webkitExitFullscreen()
+    return Promise.resolve()
+  }
+  if (document.mozCancelFullScreen) {
+    document.mozCancelFullScreen()
+    return Promise.resolve()
+  }
+  if (document.msExitFullscreen) {
+    document.msExitFullscreen()
+    return Promise.resolve()
+  }
+  return Promise.resolve()
+}
+const handleFullscreenChange = () => {
+  isFullscreen.value = getFullscreenElement() === fullscreenTarget.value
+}
+
+const handleKeydown = (event) => {
+  if ((event.key === 'Escape' || event.key === 'Esc') && getFullscreenElement() === fullscreenTarget.value) {
+    exitFullscreen().catch(() => {})
+  }
+}
+
+const fullscreenChangeEvents = [
+  'fullscreenchange',
+  'webkitfullscreenchange',
+  'mozfullscreenchange',
+  'MSFullscreenChange'
+]
+
+onMounted(() => {
+  fullscreenChangeEvents.forEach((eventName) => {
+    document.addEventListener(eventName, handleFullscreenChange)
+  })
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onBeforeUnmount(() => {
+  fullscreenChangeEvents.forEach((eventName) => {
+    document.removeEventListener(eventName, handleFullscreenChange)
+  })
+  window.removeEventListener('keydown', handleKeydown)
+})
 
 // 切换标签页
 const switchTab = (tab) => {
@@ -193,7 +277,7 @@ const switchTab = (tab) => {
     previewUrl.value = 'https://h5-606.created.app/'
   } else if (tab === 'code') {
     // 使用CodePen作为代码编辑器示例
-    // codeUrl.value = 'http://gitlib.aiyouthlab.com/-/ide/project/zhangkai/test-vscode/edit/master/-/'
+    codeUrl.value = 'http://gitlib.aiyouthlab.com/-/ide/project/zhangkai/test-vscode/edit/master/-/'
     // codeUrl.value = 'https://h5-606.created.app/'
   }
 }
@@ -227,18 +311,14 @@ const getViewAreaClass = () => {
 
 // 计算iframe样式
 const iframeStyle = computed(() => {
-//   if (isFullscreen.value) {
-//     return {
-//       width: '100vw',
-//       height: '100vh',
-//       position: 'fixed',
-//       top: '0',
-//       left: '0',
-//       zIndex: '9999',
-//       background: '#fff'
-//     }
-//   }
-  
+  if (isFullscreen.value) {
+    return {
+      width: '100%',
+      height: '100%',
+      margin: 0
+    }
+  }
+
   if (deviceSize.value === 'mobile') {
     return {
       width: `${iframeWidth.value}px`,
@@ -290,12 +370,16 @@ const resetZoom = () => {
 
 // 全屏切换
 const toggleFullscreen = () => {
-  isFullscreen.value = !isFullscreen.value
-  if (isFullscreen.value) {
-    // zoomLevel.value = 1 // 全屏时重置缩放
-  }
-}
+  const target = fullscreenTarget.value
+  if (!target) return
 
+  if (getFullscreenElement() === target) {
+    exitFullscreen().catch(() => {})
+    return
+  }
+
+  requestFullscreen(target).catch(() => {})
+}
 // 刷新预览
 const refreshPreview = () => {
   const iframe = document.querySelector('.preview-iframe')
@@ -467,6 +551,14 @@ const refreshView = () => {
   flex-direction: column;
 }
 
+.iframe-container.is-fullscreen {
+  background: #fff;
+}
+
+.iframe-container.is-fullscreen .iframe-wrapper {
+  overflow: hidden;
+}
+
 .iframe-toolbar {
   background: #f5f5f5;
   padding: 8px 16px;
@@ -498,7 +590,7 @@ const refreshView = () => {
 
 .iframe-wrapper {
   flex: 1;
-  overflow: auto;
+  /* overflow: auto; */
   position: relative;
 }
 
